@@ -18,7 +18,7 @@ BINARY=$(PROJECT)
 all: $(SOURCES) $(BINARY)
 
 $(BINARY): $(OBJECTS)
-	$(CC) $(LIBFLAGS) $(OBJECTS) $(LDFLAGS) -o $@
+	$(CC) $(LIBFLAGS) $(OBJECTS) $(LDFLAGS) -o $@ -lm
 
 .c.o:
 	$(CC) $(INCFLAGS) $(CFLAGS) -fPIC $< -o $@

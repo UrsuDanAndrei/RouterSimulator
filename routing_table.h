@@ -2,6 +2,7 @@
 #define __ROUTING_TABLE_H__
 
 #define MAX_ROUTING_TABLE_SIZE 100000
+#define MAX_MASK_SIZE 32
 
 typedef struct {
 	uint32_t network;

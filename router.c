@@ -1,8 +1,5 @@
 #include "skel.h"
 #include "main_headers.h"
-#include "arp.h"
-#include "queue.h"
-#include "routing_table.h"
 
 /* returneaza 1 daca dmac-ul corespunde interfetei intf_id, 0 altfel */
 int same_mac(int intf_id, uint8_t* dmac) {
@@ -10,10 +7,10 @@ int same_mac(int intf_id, uint8_t* dmac) {
 	get_interface_mac(intf_id, intf_mac);
 
 	// sizezof !!!
-	return !memcmp(intf_mac, dmac, MAC_SIZE * sizeof(uint8_t));
+	return !memcmp(intf_mac, dmac, ETH_ALEN * sizeof(uint8_t));
 }
 
-arp_entry* get_arp_entry(arp_entries* arp_table, __u32 ip) {
+arp_entry* get_arp_entry(arp_entries* arp_table, uint32_t ip) {
 	for (int i = 0; i < arp_table->len; ++i) {
         if (arp_table->entries[i].ip == ip) {
             return &arp_table->entries[i];
@@ -38,7 +35,7 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 
 	if (ip_hdr->protocol == IPPROTO_ICMP) {
 		struct icmphdr *icmp_hdr = (struct icmphdr *) (pkt->payload
-																+ ICMP_OFFSET);
+									+ ICMP_OFFSET);
 
 		// !!! nu stiu daca trebuie acest if
 		// discard-uieste pachetul daca nu este icmp echo request
@@ -51,7 +48,7 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 
 		// layer 3 setup
 		struct iphdr *ip_hdr_reply = (struct iphdr*) (reply->payload
-																+ IP_OFFSET);
+									+ IP_OFFSET);
 		// !!! se poate sa trebuiasca adaugate mai multe campuri
 		ip_hdr_reply->version = 4;
 		ip_hdr_reply->ttl = 64;
@@ -67,7 +64,7 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 		// cauta in tabela de rutare calea catre urmatorul hop
 
 		// !!! sizeof
-		memcpy(eth_hdr->ether_shost, intf_mac, MAC_SIZE * sizeof(uint8_t));
+		memcpy(eth_hdr->ether_shost, intf_mac, ETH_ALEN * sizeof(uint8_t));
 		// !!! htons aici pui ARP
 		eth_hdr->ether_type = htons(ETHERTYPE_IP);
 		arp_entry* pair_ip_mac = get_arp_entry(arp_table, ip_hdr->daddr);
@@ -90,14 +87,14 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 int cmp_route(const void* a, const void* b) {
 	rt_entry* entry1 = (rt_entry*) a;
 	rt_entry* entry2 = (rt_entry*) b;
-	// compara la nivel de string-uri
+
 	if (entry1->mask == entry2->mask) {
-		if (1LL * entry1->network < 1LL * entry2->network) {
+		if (entry1->network < entry2->network) {
 			return -1;
 		}
 
 		return 1;
-	} else if (1LL * entry1->mask < 1LL * entry2->mask) {
+	} else if (entry1->mask < entry2->mask) {
 		return -1;
 	} else {
 		return 1;
@@ -117,13 +114,13 @@ void parse_routing_table(rt_entries* rt_table) {
 
 		// separa informatia utila
 		char* info = strtok(line, " ");
-		rt_table->entries[i].network = inet_addr(info);
+		rt_table->entries[i].network = ntohl(inet_addr(info));
 
 		info = strtok(NULL, " ");
-		rt_table->entries[i].next_hop = inet_addr(info);
+		rt_table->entries[i].next_hop = ntohl(inet_addr(info));
 
 		info = strtok(NULL, " ");
-		rt_table->entries[i].mask = inet_addr(info);
+		rt_table->entries[i].mask = ntohl(inet_addr(info));
 
 		info = strtok(NULL, " ");
 		rt_table->entries[i].intf = atoi(info);
@@ -131,27 +128,86 @@ void parse_routing_table(rt_entries* rt_table) {
 		++i;
 	}
 	
+	// se sorteaza tabela de rutare
 	rt_table->len = i;
-
-	// !!! se sorteaza cu adresa de la dreapta la stanga for some reason
-	// !!! daca sortarea e ca si cautarea ar trebui sa fie ok
-
 	qsort(rt_table->entries, rt_table->len, sizeof(rt_entry), cmp_route);
 
 	for (int j = 0; j < rt_table->len; ++j) {
 		struct in_addr help;
-    	help.s_addr = rt_table->entries[j].mask;
+    	help.s_addr = htonl(rt_table->entries[j].mask);
 
 		printf("%s ", inet_ntoa(help));
 
-		help.s_addr = rt_table->entries[j].network;
+		help.s_addr = htonl(rt_table->entries[j].network);
 		printf("%s ", inet_ntoa(help));
 
-		help.s_addr = rt_table->entries[j].next_hop;
+		help.s_addr = htonl(rt_table->entries[j].next_hop);
 		printf("%s ", inet_ntoa(help));
 
 		printf("%d\n", rt_table->entries[j].intf);
 	}
+}
+
+rt_entry* get_best_route(uint32_t dest_ip222222222222222, rt_entries* rt_table) {
+	int msb = log2(rt_table->len);
+	printf("msb: %d, length: %d\n", msb, rt_table->len);
+
+	uint32_t dest_ip = ntohl(inet_addr("192.168.4.9"));
+	struct in_addr help;
+	help.s_addr = htonl(dest_ip);
+	printf("%s \n", inet_ntoa(help));
+
+	// se cauta intrarea cu cea mai lunga masca de retea
+	for (int mask_size = MAX_MASK_SIZE; mask_size >= 0; --mask_size) {
+		uint32_t mask = ((1LL << MAX_MASK_SIZE) - 1)
+						<< (MAX_MASK_SIZE - mask_size);
+
+		int left = 0;
+		int right = 0;
+
+		/* se cauta binar un interval [left, right] in care se regasesc numai 
+		intrari cu masca egala cu mask */
+		for (int bit = msb; bit >= 0; --bit) {
+			int index = left + (1 << bit);
+			if (index < rt_table->len && rt_table->entries[index].mask < mask) {
+				left += (1 << bit);
+			}
+		}
+
+		if (rt_table->entries[0].mask != mask) {
+			++left;
+		}
+
+
+		for (int bit = msb; bit >= 0; --bit) {
+			int index = right + (1 << bit);
+			if (index < rt_table->len
+				&& rt_table->entries[index].mask <= mask) {
+				right += (1 << bit);
+			}
+		}
+
+		// se cauta binar un match pentru adresa data ca parametru
+		int answer = left;
+		printf("index: %d\n", answer);
+		uint32_t network = dest_ip & mask;
+
+		for (int bit = log2(right); bit >= 0; --bit) {
+		//printf("%d  %d\n", index, bit);
+			int index = answer + (1 << bit);
+			if (index < rt_table->len
+				&& rt_table->entries[index].network <= network) {
+				answer += (1 << bit); 
+			}
+		}
+
+		if (rt_table->entries[answer].network == network) {
+			printf("answer: %d\n", answer);
+			return &rt_table->entries[answer];
+		}
+	}
+
+	return NULL;
 }
 
 int main(int argc, char *argv[])
@@ -159,37 +215,47 @@ int main(int argc, char *argv[])
 
 	packet pkt;
 	int rc;
-
-	init();
 	//return 0;
-	// printf("ceva\n");
-	// fflush(stdout);
-	// //return 0;
+	//init();
+	//return 0;
+	printf("ceva\n");
 
-	// // --------------------------------
-	// rt_entries rt_table;
-	// parse_routing_table(&rt_table);
-	// return 0;
+	// --------------------------------
+	rt_entries rt_table;
+	parse_routing_table(&rt_table);
 
-	// // ------------------------------
+	uint32_t dest_ip = ntohl(inet_addr("192.1.5.1"));
+	struct in_addr help;
+	help.s_addr = htonl(get_best_route(rt_table.entries[2].network, &rt_table)->network);
+	printf("reteaua gasita: %s \n", inet_ntoa(help));
 
-	// arp_entries arp_table;
-	// queue wait_list = queue_create();
+	//printf("%d\n", get_best_route(rt_table.entries[2].network, &rt_table));
+	return 0;
+
+	// ------------------------------
+
+	arp_entries arp_table;
+	queue wait_list = queue_create();
 
 	while (1) {
         // primeste un pachet de la o interfata
 		rc = get_packet(&pkt);
 		DIE(rc < 0, "get_message");
 
-        // struct ether_header *eth_hdr = (struct ether_header *) pkt.payload;
-		// struct iphdr *ip_hdr = (struct iphdr *) (pkt.payload + IP_OFFSET);
+        struct ether_header *eth_hdr = (struct ether_header *) pkt.payload;
+		struct iphdr *ip_hdr = (struct iphdr *) (pkt.payload + IP_OFFSET);
 
-        // // verifica daca pachetul este adresat unei interfete proprii
-		// for (int i = 0; i < ROUTER_NUM_INTERFACES; ++i) {
-		// 	if (same_mac(i, eth_hdr->ether_dhost)) {
-		// 		packet_for_router_intf(&arp_table, i, &pkt, wait_list);
-		// 		continue;
-		// 	}
-		// } 
+        // verifica daca pachetul este adresat unei interfete proprii
+		for (int i = 0; i < ROUTER_NUM_INTERFACES; ++i) {
+			if (same_mac(i, eth_hdr->ether_dhost)) {
+				// !!! hai sa lasam cazul asta deoparte
+				packet_for_router_intf(&arp_table, i, &pkt, wait_list);
+				continue;
+			}
+		}
+
+		// dirijeaza corespunzator pachetul
+		
+
 	}
 }
