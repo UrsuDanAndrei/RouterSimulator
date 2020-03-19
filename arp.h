@@ -3,8 +3,9 @@
 
 #include "skel.h"
 
-#define MAC_SIZE
-#define MAX_ARP_SIZE 1000
+#define MAC_SIZE 6
+#define MAX_ARP_TABLE_SIZE 1000
+#define ARP_CODE 2048
 
 typedef struct {
     __u32 ip;
@@ -12,8 +13,8 @@ typedef struct {
 } arp_entry;
 
 typedef struct {
-    arp_entry entries[MAX_ARP_SIZE];
+    arp_entry entries[MAX_ARP_TABLE_SIZE];
     int len;
-} arp_table_entries;
+} arp_entries;
 
 #endif
