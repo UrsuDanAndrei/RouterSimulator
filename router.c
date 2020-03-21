@@ -1,6 +1,58 @@
 #include "skel.h"
 #include "main_headers.h"
 
+uint16_t checksum(void *vdata, size_t length) {
+	// Cast the data pointer to one that can be indexed.
+	char* data=(char*)vdata;
+
+	// Initialise the accumulator.
+	uint64_t acc=0xffff;
+
+	// Handle any partial block at the start of the data.
+	unsigned int offset=((uintptr_t)data)&3;
+	if (offset) {
+		size_t count=4-offset;
+		if (count>length) count=length;
+		uint32_t word=0;
+		memcpy(offset+(char*)&word,data,count);
+		acc+=ntohl(word);
+		data+=count;
+		length-=count;
+	}
+
+	// Handle any complete 32-bit blocks.
+	char* data_end=data+(length&~3);
+	while (data!=data_end) {
+		uint32_t word;
+		memcpy(&word,data,4);
+		acc+=ntohl(word);
+		data+=4;
+	}
+	length&=3;
+
+	// Handle any partial block at the end of the data.
+	if (length) {
+		uint32_t word=0;
+		memcpy(&word,data,length);
+		acc+=ntohl(word);
+	}
+
+	// Handle deferred carries.
+	acc=(acc&0xffffffff)+(acc>>32);
+	while (acc>>16) {
+		acc=(acc&0xffff)+(acc>>16);
+	}
+
+	// If the data began at an odd byte address
+	// then reverse the byte order to compensate.
+	if (offset&1) {
+		acc=((acc&0xff00)>>8)|((acc&0x00ff)<<8);
+	}
+
+	// Return the checksum in network byte order.
+	return htons(~acc);
+}
+
 /* returneaza 1 daca dmac-ul corespunde interfetei intf_id, 0 altfel */
 int coresponding_mac(int intf_id, uint8_t* dmac) {
 	uint8_t* broadcast_mac = (uint8_t*) malloc(6 * sizeof(uint8_t));
@@ -93,7 +145,7 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queu
 
 	// IP setup
 	ip_hdr->version = 4;
-	ip_hdr->ihl = 5
+	ip_hdr->ihl = 5;
 	ip_hdr->ttl = 64;
 	ip_hdr->id = htons(getpid() & 0xFFFF);
 	ip_hdr->tos = 0;
@@ -147,13 +199,13 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 	struct ether_header *eth_hdr = (struct ether_header *) pkt->payload;
 	struct iphdr *ip_hdr = (struct iphdr *) (pkt->payload + IP_OFFSET);
 
-	if (ntoh(eth_hdr->ether_type) == ETHERTYPE_ARP) {
+	if (ntohs(eth_hdr->ether_type) == ETHERTYPE_ARP) {
 		struct arp_hdr *arphdr = (struct arp_hdr *) pkt->payload
 												+ sizeof(struct ether_header);
 
 		// verific daca este un arp request sau un arp reply
 		uint32_t ip_intf = inet_addr(get_interface_ip(intf_id));
-		uint32_t arp_ip_target = inet_addr(arphdr->dip_addr);
+		uint32_t arp_ip_target = inet_addr((char*) arphdr->dip_addr);
 		
 		// !!! distinge intre arp request si arp reply
 		if (ip_intf == arp_ip_target) {
@@ -174,7 +226,7 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 
 		// introduc o noua intrare in arp cache
 		++arp_table->len;
-		arp_table->entries[arp_table->len - 1].ip = inet_addr(arphdr->dip_addr);
+		arp_table->entries[arp_table->len - 1].ip = inet_addr((char*) arphdr->dip_addr);
 		memcpy(arp_table->entries[arp_table->len -1].mac, arphdr->dhw_addr, 6 * sizeof(uint8_t));
 
 		// verific daca pot pleca pachete acum
@@ -409,6 +461,8 @@ rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
 	return NULL;
 }
 
+
+
 int main(int argc, char *argv[])
 {
 	// setvbuf(stdout, NULL, _IONBF, 0);
@@ -446,8 +500,9 @@ int main(int argc, char *argv[])
 
         uint16_t check_received = ip_hdr->check;
         ip_hdr->check = 0;
+		ip_hdr->check = checksum(ip_hdr, sizeof(struct iphdr));
 
-        if (ip_checksum(ip_hdr, sizeof(struct iphdr)) != check_received) {
+        if (ip_hdr->check != check_received) {
             continue;
         }
 
@@ -458,7 +513,7 @@ int main(int argc, char *argv[])
 
         ip_hdr->ttl--;
         ip_hdr->check = 0;
-        ip_hdr->check = ip_checksum(ip_hdr, sizeof(struct iphdr));
+        ip_hdr->check = checksum(ip_hdr, sizeof(struct iphdr));
 
         // verifica daca pachetul este adresat unei interfete proprii
 		int continue_while = 0;
