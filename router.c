@@ -2,12 +2,23 @@
 #include "main_headers.h"
 
 /* returneaza 1 daca dmac-ul corespunde interfetei intf_id, 0 altfel */
-int same_mac(int intf_id, uint8_t* dmac) {
-	uint8_t* intf_mac = NULL;
-	get_interface_mac(intf_id, intf_mac);
+int coresponding_mac(int intf_id, uint8_t* dmac) {
+	uint8_t* broadcast_mac = (uint8_t*) malloc(6 * sizeof(uint8_t));
+	memset(broadcast_mac, -1, 6 * sizeof(uint8_t));
 
-	// sizezof !!!
-	return !memcmp(intf_mac, dmac, ETH_ALEN * sizeof(uint8_t));
+	// daca este adresa de broadcast inseamna ca interfata corespunde
+	if (memcmp(dmac, broadcast_mac, 6 * sizeof(uint8_t)) == 0) {
+		return 1;
+	}
+
+	uint8_t* intf_mac = (uint8_t*) malloc(6 * sizeof(uint8_t));
+	get_interface_mac(intf_id, intf_mac);
+	
+	if (memcmp(intf_mac, dmac, ETH_ALEN * sizeof(uint8_t)) == 0) {
+		return 1;
+	}
+
+	return 0;
 }
 
 arp_entry* get_arp_entry(arp_entries* arp_table, uint32_t ip) {
@@ -30,7 +41,7 @@ void init_packet(packet* pkt) {
 	pkt->len = 0;
 }
 
-void send_arp_request(arp_entries* arp_table, int intf_id, uint32_t ip) {
+void send_arp_request(arp_entries* arp_table, int intf_id, uint32_t target_ip) {
 	packet* request = (packet*) malloc(sizeof(packet));
 	init_packet(request);
 	request->len = sizeof(struct ether_header) + sizeof(struct arp_hdr);
@@ -51,9 +62,10 @@ void send_arp_request(arp_entries* arp_table, int intf_id, uint32_t ip) {
 	// arp header setup
 	// !!! vezi ca ip sa fie in bigendian
 	struct in_addr help;
-    help.s_addr = ip;
+    help.s_addr = target_ip;
 	
-	arphdr->hlen = 6;
+	// !!! arp hdrlenght verifica daca merge struc arp_header in loc de arp_hdr
+	// arphdr->hlen = 6;
 	memcpy(arphdr->shw_addr, eth_hdr->ether_shost, 6 * sizeof(uint8_t));
 	memcpy(arphdr->sip_addr, get_interface_ip(intf_id), 4 * sizeof(uint8_t));
 	memcpy(arphdr->dip_addr, inet_ntoa(help), 4 * sizeof(uint8_t));
@@ -104,20 +116,21 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queu
 	ip_hdr->check = checksum(ip_hdr, sizeof(struct iphdr));
 
 	// ICMP setup
-	icmp_hdr_reply->type = type;
-    icmp_hdr_reply->code = code;
+	icmp_hdr->type = type;
+    icmp_hdr->code = code;
 
     icmp_hdr->checksum = 0;
-    icmp_hdr->checksum = checksum(icmp_hdr_reply, sizeof(struct icmphdr));
+    icmp_hdr->checksum = checksum(icmp_hdr, sizeof(struct icmphdr));
 
 	// layer 2 setup
 	arp_entry* ip2mac = get_arp_entry(arp_table, route->next_hop);
 	get_interface_mac(route->intf, eth_hdr->ether_shost);
 	eth_hdr->ether_type = htons(ETHERTYPE_IP);
+	pkt->interface = route->intf;
 
 	if (ip2mac == NULL) {
-		enque(pkt, wait_list);
-		send_arp_request(arp_table, route->intf, ip_hdr->daddr);
+		queue_enq(wait_list, pkt);
+		send_arp_request(arp_table, route->intf, route->next_hop);
 		return;
 	}
 
@@ -135,12 +148,14 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 	struct iphdr *ip_hdr = (struct iphdr *) (pkt->payload + IP_OFFSET);
 
 	if (ntoh(eth_hdr->ether_type) == ETHERTYPE_ARP) {
-		struct arp_hdr *arphdr = (struct arp_hdr *) request->payload
+		struct arp_hdr *arphdr = (struct arp_hdr *) pkt->payload
 												+ sizeof(struct ether_header);
+
 		// verific daca este un arp request sau un arp reply
 		uint32_t ip_intf = inet_addr(get_interface_ip(intf_id));
 		uint32_t arp_ip_target = inet_addr(arphdr->dip_addr);
 		
+		// !!! distinge intre arp request si arp reply
 		if (ip_intf == arp_ip_target) {
 			// am primit un arp request, raspund cu un arp reply
 
@@ -164,17 +179,28 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 
 		// verific daca pot pleca pachete acum
 		// !!! se poate sa trebuiasca verificata toata coada, nu doar pirmul pachet
-		if (queue_empty(wait_list)) {
-			return;
+		queue copy;
+		copy = queue_create();
+
+		while (!queue_empty(wait_list)) {
+			packet* waiting_pkt = queue_deq(wait_list);
+
+			struct ether_header* eth_hdr_waiting_pkt = (struct ether_header*) waiting_pkt->payload;
+			struct iphdr *ip_hdr_waiting_pkt = (struct iphdr *) (waiting_pkt->payload + IP_OFFSET);
+
+			arp_entry* ip2mac = get_arp_entry(arp_table, ip_hdr_waiting_pkt->daddr);
+			if (ip2mac != NULL) {
+				memcpy(eth_hdr_waiting_pkt->ether_dhost, ip2mac->mac, 6 * sizeof(uint8_t));
+				send_packet(waiting_pkt->interface, waiting_pkt);
+			} else {
+				queue_enq(copy, waiting_pkt);
+			}
 		}
 
-		packet* waiting_pkt = queue_deq(wait_list);
-
-		struct ether_header* eth_hdr_waiting_pkt = (struct ether_header*) waiting_pkt->payload;
-		memcpy(eth_hdr_waiting_pkt->ether_dhost, );
-
-		send_packet(intf_id, waiting_pkt);
-
+		while (!queue_empty(copy)) {
+			queue_enq(wait_list, queue_deq(copy));
+		}
+		
 		return;
 	}
 
@@ -230,7 +256,6 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 
 		// // layer 2 setup
 		// rt_entry* route = get_best_route(ntohl(ip_hdr_reply->daddr), rt_table);
-		// arp_entry* ip2mac = get_arp_entry(arp_table, route->next_hop);
 		// // !!! nu stiu daca trebuie htonl aici, sau trebuie trecut ethertype
 		// // uint8_t* intf_mac = NULL;
 		// // get_interface_mac(intf_id, intf_mac);
@@ -244,6 +269,7 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 		// 	return;
 		// }
 
+		// arp_entry* ip2mac = get_arp_entry(arp_table, route->next_hop);
 		// eth_hdr_reply->ether_type = htons(ETHERTYPE_IP);
 	}
 }
@@ -386,7 +412,6 @@ rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
 int main(int argc, char *argv[])
 {
 	// setvbuf(stdout, NULL, _IONBF, 0);
-	packet pkt;
 	int rc;
 	//return 0;
 	//init();
@@ -412,21 +437,22 @@ int main(int argc, char *argv[])
 
 	while (1) {
         // primeste un pachet de la o interfata
-		rc = get_packet(&pkt);
+		packet* pkt = (packet*) malloc(sizeof(packet));
+		rc = get_packet(pkt);
 		DIE(rc < 0, "get_message");
 
-        struct ether_header *eth_hdr = (struct ether_header *) pkt.payload;
-		struct iphdr *ip_hdr = (struct iphdr *) (pkt.payload + IP_OFFSET);
-		
+        struct ether_header *eth_hdr = (struct ether_header *) pkt->payload;
+		struct iphdr *ip_hdr = (struct iphdr *) (pkt->payload + IP_OFFSET);
+
         uint16_t check_received = ip_hdr->check;
-        ip_hdr->check = 0; 
+        ip_hdr->check = 0;
 
         if (ip_checksum(ip_hdr, sizeof(struct iphdr)) != check_received) {
             continue;
         }
 
         if (ip_hdr->ttl <= 1) {
-            send_icmp_packet(arp_table, 0, ip_hdr->saddr, wait_list, rt_table, 11, 0);
+            send_icmp_packet(&arp_table, 0, ip_hdr->saddr, wait_list, &rt_table, 11, 0);
             continue;
         }
 
@@ -437,9 +463,9 @@ int main(int argc, char *argv[])
         // verifica daca pachetul este adresat unei interfete proprii
 		int continue_while = 0;
 		for (int i = 0; i < ROUTER_NUM_INTERFACES; ++i) {
-			if (same_mac(i, eth_hdr->ether_dhost)) {
+			if (coresponding_mac(i, eth_hdr->ether_dhost)) {
 				// !!! verifica sa primeasca si pachetele de broadcast
-				packet_for_router_intf(&arp_table, i, &pkt, wait_list, &rt_table);
+				packet_for_router_intf(&arp_table, i, pkt, wait_list, &rt_table);
 				continue_while = 1;
 				break;
 			}
@@ -451,25 +477,22 @@ int main(int argc, char *argv[])
 
 		rt_entry* route =  get_best_route(ip_hdr->daddr, &rt_table);
 		if (route == NULL) {
-			send_icmp_packet(arp_table, 0, ip_hdr->saddr, wait_list, rt_table, 3, 0);
+			send_icmp_packet(&arp_table, 0, ip_hdr->saddr, wait_list, &rt_table, 3, 0);
 		}
 		
 		arp_entry* ip2mac = get_arp_entry(&arp_table, route->next_hop);
         get_interface_mac(route->intf, eth_hdr->ether_shost);
 		eth_hdr->ether_type = htons(ETHERTYPE_IP);
+		pkt->interface = route->intf;
 
 		if (ip2mac == NULL) {
 			send_arp_request(&arp_table, route->intf, route->next_hop);
+			queue_enq(wait_list, pkt);
+			continue;
 		}
 
         memcpy(eth_hdr->ether_dhost, ip2mac->mac, 6 * sizeof(uint8_t));
-
-		/* TODO 8: Forward the pachet to best_route->interface */
-        send_packet(route->intf, &m);
-
+        send_packet(route->intf, pkt);
 		// dirijeaza corespunzator pachetul
-				
-		
-
 	}
 }

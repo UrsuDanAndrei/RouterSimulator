@@ -17,12 +17,12 @@ typedef struct {
     int len;
 } arp_entries;
 
-// struct arp_hdr {
-// 	uint8_t shw_addr[ETH_ALEN];	
-// 	uint8_t sip_addr[IP_ALEN];
+struct arp_hdr {
+	uint8_t shw_addr[ETH_ALEN];	
+	uint8_t sip_addr[IP_ALEN];
     
-// 	uint8_t dhw_addr[ETH_ALEN];	
-// 	uint8_t dip_addr[IP_ALEN];
-// };
+	uint8_t dhw_addr[ETH_ALEN];	
+	uint8_t dip_addr[IP_ALEN];
+};
 
 #endif
