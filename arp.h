@@ -8,7 +8,7 @@
 #define IP_ALEN 4
 
 typedef struct {
-    __u32 ip;
+    uint32_t ip;
 	uint8_t mac[ETH_ALEN];
 } arp_entry;
 
@@ -17,7 +17,7 @@ typedef struct {
     int len;
 } arp_entries;
 
-struct arp_hdr {
+typedef struct {
 	uint16_t ar_hrd;                /* Format of hardware address.  */
     uint16_t ar_pro;                /* Format of protocol address.  */
     uint8_t ar_hln;                /* Length of hardware address.  */
@@ -30,6 +30,6 @@ struct arp_hdr {
     
 	uint8_t dhw_addr[ETH_ALEN];
 	uint8_t dip_addr[IP_ALEN];
-};
+} arp_hdr;
 
 #endif
