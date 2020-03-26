@@ -18,10 +18,17 @@ typedef struct {
 } arp_entries;
 
 struct arp_hdr {
-	uint8_t shw_addr[ETH_ALEN];	
+	uint16_t ar_hrd;                /* Format of hardware address.  */
+    uint16_t ar_pro;                /* Format of protocol address.  */
+    uint8_t ar_hln;                /* Length of hardware address.  */
+    uint8_t ar_pln;                /* Length of protocol address.  */
+    uint16_t ar_op;
+
+
+	uint8_t shw_addr[ETH_ALEN];
 	uint8_t sip_addr[IP_ALEN];
     
-	uint8_t dhw_addr[ETH_ALEN];	
+	uint8_t dhw_addr[ETH_ALEN];
 	uint8_t dip_addr[IP_ALEN];
 };
 
