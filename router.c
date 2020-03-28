@@ -159,6 +159,7 @@ uint16_t ip_checksum(void* vdata,size_t length) {
 
 /* returneaza 1 daca dmac-ul corespunde interfetei intf_id, 0 altfel */
 int coresponding_mac(int intf_id, uint8_t* dmac) {
+	// !!! poate o sa vrei sa verifici si broadcast toto aici
 	// uint8_t* broadcast_mac = (uint8_t*) malloc(6 * sizeof(uint8_t));
 	// memset(broadcast_mac, -1, 6 * sizeof(uint8_t));
 
@@ -318,10 +319,11 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queu
 	eth_hdr->ether_type = htons(ETHERTYPE_IP);
 
 	// daca nu stiu mac-ul pt route->next_hop fac un arp request
-	arp_entry* ip2mac = get_arp_entry(arp_table, route->next_hop);
+	// !!! route->next_hop s-ar putea sa nu fie ce trebuie !!!!!!!!!
+	arp_entry* ip2mac = get_arp_entry(arp_table, htonl(route->next_hop));
 	if (ip2mac == NULL) {
 		queue_enq(wait_list, pkt);
-		printf("REQUEST SENT\n");
+		printf("REQUEST SENT LOCATIA 1111\n");
 		send_arp_request(arp_table, route->intf, htonl(route->next_hop));
 		return;
 	}
@@ -740,9 +742,10 @@ int main(int argc, char *argv[])
 			eth_hdr->ether_type = htons(ETHERTYPE_IP);
 			pkt->interface = route->intf;
 
-			arp_entry* ip2mac = get_arp_entry(&arp_table, route->next_hop);
+			arp_entry* ip2mac = get_arp_entry(&arp_table, htonl(route->next_hop));
 			if (ip2mac == NULL) {
 				// !!! nu se stie in ce endian lucreaza send_arp_request
+				printf("REQUEST SENT LOCATIA 2222\n");
 				send_arp_request(&arp_table, route->intf, htonl(route->next_hop));
 				queue_enq(wait_list, pkt);
 				continue;
