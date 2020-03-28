@@ -310,7 +310,10 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queu
 
 	// !!!!!! aici am schimbat checksum
     icmp_hdr->checksum = 0;
-    icmp_hdr->checksum = icmp_checksum(icmp_hdr, sizeof(struct icmphdr));
+   // icmp_hdr->checksum = icmp_checksum(icmp_hdr, sizeof(struct icmphdr));
+
+	// !!!!!! 64 contine tot icmp hdr!!! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+   	icmp_hdr->checksum = icmp_checksum(icmp_hdr, 64);
 	//icmp_hdr->checksum = 0xffff;
 	printf("ICMP HDR ESTE:   %d\n", icmp_hdr->checksum);
 

@@ -1,1 +1,2 @@
-bash: ./router: No such file or directory
+[33]: read
+Network is down
