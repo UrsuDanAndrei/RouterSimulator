@@ -1,6 +1,58 @@
 #include "skel.h"
 #include "main_headers.h"
 
+uint16_t icmp_checksum(void *vdata, size_t length) {
+	// Cast the data pointer to one that can be indexed.
+	char* data=(char*)vdata;
+
+	// Initialise the accumulator.
+	uint64_t acc=0xffff;
+
+	// Handle any partial block at the start of the data.
+	unsigned int offset=((uintptr_t)data)&3;
+	if (offset) {
+		size_t count=4-offset;
+		if (count>length) count=length;
+		uint32_t word=0;
+		memcpy(offset+(char*)&word,data,count);
+		acc+=ntohl(word);
+		data+=count;
+		length-=count;
+	}
+
+	// Handle any complete 32-bit blocks.
+	char* data_end=data+(length&~3);
+	while (data!=data_end) {
+		uint32_t word;
+		memcpy(&word,data,4);
+		acc+=ntohl(word);
+		data+=4;
+	}
+	length&=3;
+
+	// Handle any partial block at the end of the data.
+	if (length) {
+		uint32_t word=0;
+		memcpy(&word,data,length);
+		acc+=ntohl(word);
+	}
+
+	// Handle deferred carries.
+	acc=(acc&0xffffffff)+(acc>>32);
+	while (acc>>16) {
+		acc=(acc&0xffff)+(acc>>16);
+	}
+
+	// If the data began at an odd byte address
+	// then reverse the byte order to compensate.
+	if (offset&1) {
+		acc=((acc&0xff00)>>8)|((acc&0x00ff)<<8);
+	}
+
+	// Return the checksum in network byte order.
+	return htons(~acc);
+}
+
 uint16_t checksum(void *vdata, size_t length) {
 	// Cast the data pointer to one that can be indexed.
 	char* data=(char*)vdata;
@@ -208,19 +260,23 @@ void send_arp_request(arp_entries* arp_table, int intf_id, uint32_t target_ip) {
 // !!! poate faci free la unele pachete trimise
 // !!! poate adaugi void add_arp_entry
 
-void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queue wait_list, rt_entries* rt_table, uint8_t type, uint8_t code) {
+void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queue wait_list, rt_entries* rt_table, uint8_t type, uint8_t code, packet* pkt_recv) {
 
 	// packet setup
 	packet* pkt = (packet*) malloc(sizeof(packet));
-	init_packet(pkt);
-	pkt->len = sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr);
+	if (type == 0 && code == 0) {
+		pkt = pkt_recv;
+	} else {
+		init_packet(pkt);
+		pkt->len = sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr);
+	}
 
 	// layer 3 setup
 	struct ether_header *eth_hdr = (struct ether_header*) pkt->payload;
 	struct iphdr *ip_hdr = (struct iphdr*) (pkt->payload
 								+ IP_OFFSET);
 	struct icmphdr *icmp_hdr = (struct icmphdr*) (pkt->payload
- 								+ ICMP_OFFSET);
+ 								+ sizeof(struct ether_header) + sizeof(struct iphdr));
 	// !!! se poate sa trebuiasca adaugate mai multe campuri, sau adaugat htons
 	// IP setup
 	ip_hdr->version = 4;
@@ -251,8 +307,11 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queu
 	icmp_hdr->type = type;
     icmp_hdr->code = code;
 
+	// !!!!!! aici am schimbat checksum
     icmp_hdr->checksum = 0;
-    icmp_hdr->checksum = checksum(icmp_hdr, sizeof(struct icmphdr));
+    icmp_hdr->checksum = icmp_checksum(icmp_hdr, sizeof(struct icmphdr));
+	//icmp_hdr->checksum = 0xffff;
+	printf("ICMP HDR ESTE:   %d\n", icmp_hdr->checksum);
 
 	// layer 2 setup
 	get_interface_mac(route->intf, eth_hdr->ether_shost);
@@ -317,13 +376,15 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 			send_packet(pkt->interface, pkt);
 		} else {
 			printf("EU ROUTER AM PRIMIT REPLY\n");
+			// !!!!!!! nu merge ori adaugarea in tabela ori extragerea din tabela
 			// adaug intrarea in tabela arp
 			++arp_table->len;
-			memcpy(&arp_table->entries[arp_table->len - 1].ip, arphdr->dip_addr, 4 * sizeof(uint8_t));
-			memcpy(arp_table->entries[arp_table->len -1].mac, arphdr->dhw_addr, 6 * sizeof(uint8_t));
+			memcpy(&arp_table->entries[arp_table->len - 1].ip, arphdr->sip_addr, 4 * sizeof(uint8_t));
+			memcpy(arp_table->entries[arp_table->len -1].mac, arphdr->shw_addr, 6 * sizeof(uint8_t));
 
 			// verific daca pot pleca pachete acum
 			// !!! se poate sa trebuiasca verificata toata coada, nu doar pirmul pachet
+			// !!!!!! se poate sa trebuiasca verificat doar primul pachet
 			queue copy;
 			copy = queue_create();
 
@@ -337,6 +398,10 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 				if (ip2mac != NULL) {
 					printf("NICIO SANSA\n");
 					memcpy(eth_hdr_waiting_pkt->ether_dhost, ip2mac->mac, 6 * sizeof(uint8_t));
+
+					//iphdr->checksum = 0;
+					
+
 					send_packet(waiting_pkt->interface, waiting_pkt);
 				} else {
 					printf("NU IMI PLACE DACA ESTI AICI\n");
@@ -360,7 +425,7 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 			return;
 		}
 
-		send_icmp_packet(arp_table, intf_id, ip_hdr->saddr, wait_list, rt_table, 0, 0);
+		send_icmp_packet(arp_table, intf_id, ip_hdr->saddr, wait_list, rt_table, 0, 0, pkt);
 
 		// daca este un icmp echo request se raspunde cu un icmp echo reply
 		// packet* reply = (packet*) malloc(sizeof(packet));
@@ -582,6 +647,8 @@ int main(int argc, char *argv[])
 	// ------------------------------
 
 	arp_entries arp_table;
+	arp_table.len = 0;
+	//printf("the size is: %d\n", arp_table.len);
 	queue wait_list = queue_create();
 
 	while (1) {
@@ -609,7 +676,7 @@ int main(int argc, char *argv[])
 			printf("inainte de ttl\n");
         	if (ip_hdr->ttl <= 1) {
 				// interfata va fi aleasa in send_icmp_packet in functie de ruta generata de adresa sursa a pachetului
-            	send_icmp_packet(&arp_table, 0, ip_hdr->saddr, wait_list, &rt_table, 11, 0);
+            	send_icmp_packet(&arp_table, 0, ip_hdr->saddr, wait_list, &rt_table, 11, 0, NULL);
             	continue;
         	}
 
@@ -621,9 +688,14 @@ int main(int argc, char *argv[])
 			int continue_while = 0;
 			printf("inainte de for\n");
 			for (int i = 0; i < ROUTER_NUM_INTERFACES; ++i) {
-				if (coresponding_mac(i, eth_hdr->ether_dhost)) {
+				uint32_t dest_ip = inet_addr(get_interface_ip(i));
+				if (coresponding_mac(i, eth_hdr->ether_dhost) && ip_hdr->daddr == dest_ip) {
 					// !!! verifica sa primeasca si pachetele de broadcast
 					printf("int for pentru %d\n", i);
+					// !!! verifica sa fie adresat si ip pentru intrefata asta
+
+
+
 					packet_for_router_intf(&arp_table, i, pkt, wait_list, &rt_table);
 					continue_while = 1;
 					break;
@@ -637,7 +709,7 @@ int main(int argc, char *argv[])
 			rt_entry* route =  get_best_route(ip_hdr->daddr, &rt_table);
 			if (route == NULL) {
 				printf("aaaaaaaaaaaaaaaaaaaaaa\n");
-				send_icmp_packet(&arp_table, 0, ip_hdr->saddr, wait_list, &rt_table, 3, 0);
+				send_icmp_packet(&arp_table, 0, ip_hdr->saddr, wait_list, &rt_table, 3, 0, NULL);
 			}
 		
         	get_interface_mac(route->intf, eth_hdr->ether_shost);

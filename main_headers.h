@@ -17,7 +17,7 @@ rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table);
 arp_entry* get_arp_entry(arp_entries* arp_table, uint32_t ip);
 void init_packet(packet* pkt);
 void send_arp_request(arp_entries* arp_table, int intf_id, uint32_t target_ip);
-void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queue wait_list, rt_entries* rt_table, uint8_t type, uint8_t code);
+void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queue wait_list, rt_entries* rt_table, uint8_t type, uint8_t code, packet* pkt_recv);
 void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 						   packet* pkt, queue wait_list, rt_entries* rt_table);
 int cmp_route(const void* a, const void* b);
