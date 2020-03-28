@@ -475,7 +475,7 @@ void packet_for_router_intf(arp_entries* arp_table, int intf_id,
 
 		// if (ip2mac == NULL) {
 		// 	enque(reply, wait_list);
-		// 	send_arp_request(arp_table, route->intf, ip_hdr->daddr);
+		// 	send_arp_request(arp_table, route->intf, htonl(ip_hdr->daddr);
 		// 	return;
 		// }
 
@@ -550,7 +550,7 @@ void parse_routing_table(rt_entries* rt_table) {
 }
 
 
-// cred ca greseala este in tablea de rutare la  adresa cu masca 255.255.0.0
+//cred ca greseala este in tablea de rutare la  adresa cu masca 255.255.0.0
 rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
 	int msb = log2(rt_table->len);
 	// printf("msb: %d, length: %d\n", msb, rt_table->len);
@@ -619,6 +619,29 @@ rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
 	//printf("aaaaaaaaaa\n");
 	return NULL;
 }
+
+
+
+// rt_entry *get_best_route2222(uint32_t dest_ip, rt_entries* rt_table) {
+//     int index = -1;
+
+//     for (int i = 0; i < rt_table->len; ++i) {
+//         unsigned int and_dest_ip = dest_ip & rt_table->entries[i].mask;
+//         if (rt_table->entries[i].network == and_dest_ip) {
+//             if (index == -1) {
+//                 index = i;
+//             } else if (nr_bits_set(rtable[index].mask) < nr_bits_set(rtable[i].mask)) {
+//                 index = i;
+//             }
+//         }
+//     }
+
+// 	if (index == -1) {
+//         return NULL;
+//     }
+
+//     return &rtable[index];
+// }
 
 
 
@@ -706,10 +729,11 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
-			rt_entry* route =  get_best_route(ip_hdr->daddr, &rt_table);
+			rt_entry* route =  get_best_route(ntohl(ip_hdr->daddr), &rt_table);
 			if (route == NULL) {
 				printf("aaaaaaaaaaaaaaaaaaaaaa\n");
 				send_icmp_packet(&arp_table, 0, ip_hdr->saddr, wait_list, &rt_table, 3, 0, NULL);
+				continue;
 			}
 		
         	get_interface_mac(route->intf, eth_hdr->ether_shost);
@@ -718,7 +742,8 @@ int main(int argc, char *argv[])
 
 			arp_entry* ip2mac = get_arp_entry(&arp_table, route->next_hop);
 			if (ip2mac == NULL) {
-				send_arp_request(&arp_table, route->intf, route->next_hop);
+				// !!! nu se stie in ce endian lucreaza send_arp_request
+				send_arp_request(&arp_table, route->intf, htonl(route->next_hop));
 				queue_enq(wait_list, pkt);
 				continue;
 			}
