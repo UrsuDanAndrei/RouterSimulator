@@ -1,12 +1,16 @@
 #include "icmp.h"
 
-void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queue wait_list, rt_entries* rt_table, uint8_t type, uint8_t code, packet* pkt_recv) {
+void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip,
+							queue wait_list, rt_entries* rt_table, uint8_t type,
+											uint8_t code, packet* pkt_recv) {
 	// packet setup
 	packet* pkt;
 	if (type == 0 && code == 0) {
-		// pentru ca echo reply sa corespunda cu echo request, se utilizeaza acelasi pachet
+		/* pentru ca echo reply sa corespunda la echo request,
+		se utilizeaza acelasi pachet din motive de eficienta */
 		pkt = pkt_recv;
 	} else {
+		// altfel se aloca un pachet separat
 		pkt = (packet*) malloc(sizeof(packet));
 		init_packet(pkt);
 		pkt->len = sizeof(struct ether_header) + sizeof(struct iphdr) + sizeof(struct icmphdr);
@@ -25,7 +29,7 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queu
 	ip_hdr->tos = 0;
 	ip_hdr->frag_off = 0;
 	ip_hdr->tot_len = htons(pkt->len - sizeof(struct ether_header));
-	ip_hdr->protocol = 1;
+	ip_hdr->protocol = IPPROTO_ICMP;
 	ip_hdr->daddr = destip;
 
 	rt_entry* route = get_best_route(ntohl(destip), rt_table);
@@ -53,7 +57,9 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queu
 	get_interface_mac(route->intf, eth_hdr->ether_shost);
 	eth_hdr->ether_type = htons(ETHERTYPE_IP);
 
-	// daca nu stiu mac-ul pt route->next_hop fac un arp request
+	/* daca nu se gaseste o intrarea in tabela arp pentru adresa ip next_hop se
+	trimite un arp request pentru aceasta si se pune
+	pachetul in "coada de asteptare" */
 	arp_entry* ip2mac = get_arp_entry(arp_table, htonl(route->next_hop));
 	if (ip2mac == NULL) {
 		queue_enq(wait_list, pkt);
@@ -61,6 +67,7 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip, queu
 		return;
 	}
 
+	// daca mac-ul este cunoscut se trimite mai departe pachetul
 	memcpy(eth_hdr->ether_dhost, ip2mac->mac, 6 * sizeof(uint8_t));
 	send_packet(pkt->interface, pkt);
 	free(pkt);

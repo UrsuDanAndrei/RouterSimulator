@@ -4,6 +4,7 @@ int cmp_route(const void *a, const void *b) {
 	rt_entry* entry1 = (rt_entry *) a;
 	rt_entry* entry2 = (rt_entry *) b;
 
+	// daca mastile sunt egale se returneaza adresa de retea mai mica
 	if (entry1->mask == entry2->mask) {
 		if (entry1->network < entry2->network) {
 			return -1;
@@ -47,6 +48,8 @@ void parse_routing_table(rt_entries *rt_table) {
 	// se sorteaza tabela de rutare dupa functia cmp_route
 	rt_table->len = i;
 	qsort(rt_table->entries, rt_table->len, sizeof(rt_entry), cmp_route);
+
+	fclose(in);
 }
 
 rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
@@ -54,13 +57,14 @@ rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
 	// se cauta intrarea cu cea mai lunga masca de retea
 	for (int mask_size = MAX_MASK_SIZE; mask_size >= 0; --mask_size) {
 		uint32_t mask = ((1LL << MAX_MASK_SIZE) - 1)
-						<< (MAX_MASK_SIZE - mask_size);
-
+												<< (MAX_MASK_SIZE - mask_size);
 		int left = 0;
 		int right = 0;
 
 		/* se cauta binar un interval [left, right] in care se regasesc numai 
 		intrari cu masca egala cu mask */
+
+		// se cauta binar left
 		for (int bit = msb; bit >= 0; --bit) {
 			int index = left + (1 << bit);
 			if (index < rt_table->len && rt_table->entries[index].mask < mask) {
@@ -72,6 +76,7 @@ rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
 			++left;
 		}
 
+		// se cauta binar right
 		for (int bit = msb; bit >= 0; --bit) {
 			int index = right + (1 << bit);
 			if (index < rt_table->len
@@ -80,7 +85,8 @@ rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
 			}
 		}
 
-		// se cauta binar un match pentru adresa data ca parametru in intervalul [left, right]
+		/* se cauta binar un match in intervalul [left, right] pentru adresa 
+		primita ca parametru */
 		int answer = left;
 		uint32_t network = dest_ip & mask;
 
@@ -92,7 +98,7 @@ rt_entry* get_best_route(uint32_t dest_ip, rt_entries* rt_table) {
 			}
 		}
 
-		// daca nu se gaseste un match se incearca o masca de dimensiune mai mica
+		// daca nu se gaseste un match se va incerca o masca mai mica
 		if (rt_table->entries[answer].network == network) {
 			return &rt_table->entries[answer];
 		}
