@@ -2,6 +2,7 @@
 #define __ARP_H__
 
 #include "skel.h"
+#include "utils.h"
 
 #define MAX_ARP_TABLE_SIZE 1000
 #define ARP_CODE 2048
@@ -15,13 +16,13 @@ typedef struct {
 typedef struct {
     arp_entry entries[MAX_ARP_TABLE_SIZE];
     int len;
-} arp_entries;
+} arp_entries ;
 
 typedef struct {
-	uint16_t ar_hrd;                /* Format of hardware address.  */
-    uint16_t ar_pro;                /* Format of protocol address.  */
-    uint8_t ar_hln;                /* Length of hardware address.  */
-    uint8_t ar_pln;                /* Length of protocol address.  */
+	uint16_t ar_hrd;
+    uint16_t ar_pro;
+    uint8_t ar_hln;
+    uint8_t ar_pln;
     uint16_t ar_op;
 
 
@@ -32,4 +33,8 @@ typedef struct {
 	uint8_t dip_addr[IP_ALEN];
 } arp_hdr;
 
-#endif
+arp_entry* get_arp_entry(arp_entries *arp_table, uint32_t ip);
+void send_arp_request(arp_entries *arp_table, int intf_id, uint32_t target_ip);
+void update_arp_table(arp_entries *arp_table, arp_entry *new_entry);
+
+#endif // __ARP_H__
