@@ -1,4 +1,3 @@
-#include "skel.h"
 #include "main_headers.h"
 
 int coresponding_mac(int intf_id, uint8_t* dmac) {
@@ -47,56 +46,6 @@ void empty_wait_list(arp_entries *arp_table, queue wait_list) {
 	}
 
 	free(copy);
-}
-
-void packet_for_router_intf(arp_entries *arp_table, int intf_id,
-						   packet *pkt, queue wait_list, rt_entries *rt_table) {
-	
-	struct ether_header *eth_hdr = (struct ether_header *) pkt->payload;
-
-	if (ntohs(eth_hdr->ether_type) == ETHERTYPE_ARP) {
-		arp_hdr *arphdr = (arp_hdr *) (pkt->payload + ARP_OFFSET);
-
-		// verific daca este un arp request sau un arp reply
-		if (ntohs(arphdr->ar_op) == 1) {
-			// am primit un arp request, raspund cu un arp reply
-			send_arp_reply(intf_id, pkt);
-		} else {
-			// am primit un arp reply, updatez intrarea in tabela arp
-			arp_entry *reply_entry = (arp_entry *) malloc(sizeof(reply_entry));
-			memcpy(&reply_entry->ip, arphdr->sip_addr,
-													IP_ALEN * sizeof(uint8_t));
-			memcpy(reply_entry->mac, arphdr->shw_addr,
-													ETH_ALEN * sizeof(uint8_t));
-			update_arp_table(arp_table, reply_entry);
-			free(reply_entry);
-			free(pkt);
-
-			/* verific daca aceasta noua intrare permite plecarea unor
-			pachete aflate "in asteptare" */
-			empty_wait_list(arp_table, wait_list);
-		}
-	} else if (ntohs(eth_hdr->ether_type) == ETHERTYPE_IP) {
-		struct iphdr *ip_hdr = (struct iphdr *) (pkt->payload + IP_OFFSET);
-
-		/* discard-uieste pachetul daca nu este icmp echo request
-		(nu se specifica in cerinta alte pachete ip la care router-ul trebuie sa
-		raspunda sau pe care ar trebui sa le proceseze) */
-		if (ip_hdr->protocol == IPPROTO_ICMP) {
-			struct icmphdr *icmp_hdr = (struct icmphdr *)
-												(pkt->payload + ICMP_OFFSET);
-			if (!(icmp_hdr->type == ICMP_ECHO && icmp_hdr->code == 0)) {
-				return;
-			}
-
-			send_icmp_packet(arp_table, intf_id, ip_hdr->saddr, wait_list,
-											rt_table, ICMP_ECHOREPLY, 0, pkt);
-		} else {
-			free(pkt);
-		}
-	} else {
-		free(pkt);
-	}
 }
 
 void handle_ip_packet(arp_entries *arp_table, rt_entries *rt_table, packet *pkt,
@@ -191,6 +140,58 @@ void handle_arp_packet(arp_entries *arp_table, rt_entries *rt_table,
 			packet_for_router_intf(arp_table, i, pkt, wait_list, rt_table);
 			return;
 		}
+	}
+
+	free(pkt);
+}
+
+void packet_for_router_intf(arp_entries *arp_table, int intf_id,
+						   packet *pkt, queue wait_list, rt_entries *rt_table) {
+	
+	struct ether_header *eth_hdr = (struct ether_header *) pkt->payload;
+
+	if (ntohs(eth_hdr->ether_type) == ETHERTYPE_ARP) {
+		arp_hdr *arphdr = (arp_hdr *) (pkt->payload + ARP_OFFSET);
+
+		// verific daca este un arp request sau un arp reply
+		if (ntohs(arphdr->ar_op) == 1) {
+			// am primit un arp request, raspund cu un arp reply
+			send_arp_reply(intf_id, pkt);
+		} else {
+			// am primit un arp reply, updatez intrarea in tabela arp
+			arp_entry *reply_entry = (arp_entry *) malloc(sizeof(reply_entry));
+			memcpy(&reply_entry->ip, arphdr->sip_addr,
+													IP_ALEN * sizeof(uint8_t));
+			memcpy(reply_entry->mac, arphdr->shw_addr,
+													ETH_ALEN * sizeof(uint8_t));
+			update_arp_table(arp_table, reply_entry);
+			free(reply_entry);
+			free(pkt);
+
+			/* verific daca aceasta noua intrare permite plecarea unor
+			pachete aflate "in asteptare" */
+			empty_wait_list(arp_table, wait_list);
+		}
+	} else if (ntohs(eth_hdr->ether_type) == ETHERTYPE_IP) {
+		struct iphdr *ip_hdr = (struct iphdr *) (pkt->payload + IP_OFFSET);
+
+		/* discard-uieste pachetul daca nu este icmp echo request
+		(nu se specifica in cerinta alte pachete ip la care router-ul trebuie sa
+		raspunda sau pe care ar trebui sa le proceseze) */
+		if (ip_hdr->protocol == IPPROTO_ICMP) {
+			struct icmphdr *icmp_hdr = (struct icmphdr *)
+												(pkt->payload + ICMP_OFFSET);
+			if (!(icmp_hdr->type == ICMP_ECHO && icmp_hdr->code == 0)) {
+				return;
+			}
+
+			send_icmp_packet(arp_table, intf_id, ip_hdr->saddr, wait_list,
+											rt_table, ICMP_ECHOREPLY, 0, pkt);
+		} else {
+			free(pkt);
+		}
+	} else {
+		free(pkt);
 	}
 }
 

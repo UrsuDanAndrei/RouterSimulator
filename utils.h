@@ -3,10 +3,10 @@
 
 #include "skel.h"
 
+/* initializeaza cu 0 lungimea si payload-ul pachetului primit ca parametru */
 void init_packet(packet* pkt);
 
-uint16_t icmp_checksum(void *vdata, size_t length);
+/* returneaza suma de control pentru header-ul primit ca parametru */
 uint16_t checksum(void *vdata, size_t length);
-uint16_t ip_checksum(void* vdata,size_t length);
 
 #endif // _UTILS_H__

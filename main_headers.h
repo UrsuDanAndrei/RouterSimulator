@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "skel.h"
 #include "arp.h"
 #include "queue.h"
 #include "routing_table.h"

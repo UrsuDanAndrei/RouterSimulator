@@ -1,9 +1,9 @@
 PROJECT=router
 SOURCES=router.c queue.c list.c skel.c icmp.c routing_table.c arp.c utils.c
-LIBRARY=nope
+LIBRARY=math.h
 INCPATHS=include
 LIBPATHS=.
-LDFLAGS=
+LDFLAGS=-lm
 CFLAGS=-c -Wall
 CC=gcc
 
@@ -18,7 +18,7 @@ BINARY=$(PROJECT)
 all: $(SOURCES) $(BINARY)
 
 $(BINARY): $(OBJECTS)
-	$(CC) $(LIBFLAGS) $(OBJECTS) $(LDFLAGS) -o $@ -lm
+	$(CC) $(LIBFLAGS) $(OBJECTS) $(LDFLAGS) -o $@
 
 .c.o:
 	$(CC) $(INCFLAGS) $(CFLAGS) -fPIC $< -o $@

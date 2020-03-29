@@ -33,6 +33,11 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip,
 	ip_hdr->daddr = destip;
 
 	rt_entry* route = get_best_route(ntohl(destip), rt_table);
+	if (route == NULL) {
+		// daca nu exista nicio cale catre destip nu se poate trimite pachetul
+		return;
+	}
+
 	pkt->interface = route->intf;
 
 	// daca trebuie sa dea echo reply, sursa ip trebuie sa fie intf_id
@@ -51,7 +56,7 @@ void send_icmp_packet(arp_entries* arp_table, int intf_id, uint32_t destip,
     icmp_hdr->code = code;
 
     icmp_hdr->checksum = 0;
-   	icmp_hdr->checksum = icmp_checksum(icmp_hdr, ICMP_HEADER_LENGTH);
+   	icmp_hdr->checksum = checksum(icmp_hdr, ICMP_HEADER_LENGTH);
 
 	// layer 2 setup
 	get_interface_mac(route->intf, eth_hdr->ether_shost);

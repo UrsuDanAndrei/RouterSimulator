@@ -1,1 +1,185 @@
-Prima data caut pt masca 255.255.255.255, apoi elimin cate un bit si caut binar pana cand gasest adresa potrivita
+Nume: Ursu Dan-Andrei
+Grupa: 324CA
+
+===| main ======================================================================
+
+Executia programului incepe in fisierul "router.c", in functia main:
+
+===|===| routing_table.c =======================================================
+
+Initial se aloca memorie pentru tabela de rutare si se construieste aceasta
+tabela prin apelul functiei "parse_routing_table" a carei implementare se
+gaseste in "routing_table.c".
+
+In cadrul acestei functii se deschide fisierul "rtable.txt" si se parseaza linie
+cu linie informatia din acesta. Fiecare linie din fisier contine elementele unei
+structuri "rt_entry" (network, next_hop, mask, intf). Campurile din aceasta
+structura sunt interpretate in formatul little endian. Dupa ce toate intrarile
+au fost citite si introduse in rt_table, acestea se sorteaza pentru a permite
+accesarea elementelor in O(log(N)). Sortarea se realizeaza cu ajutorul functiei
+"cmp_route", pe primele pozitii fiind plasate intrarile cu masca de retea minima
+si in caz de egalitate se departajeaza dupa adresa de retea minima.
+
+Functia "get_best_route" primeste ca parametru o adresa ip si returneaza
+intrarea care corespunde acesteia si care are masca de retea cea mai lunga.
+Pentru a gasi aceasta intrare se porneste de la masca de lungime maxima
+255.255.255.255 si se scade pana la 0.0.0.0, pentru fiecare masca se cauta binar
+in tabela de rutare o intrare care sa se verifice pentru adresa ip oferita
+(o intrare se verifica daca ip & mask == network). Daca se gaseste o intrare
+valida aceasta se returneaza. Daca nu se gaseste nicio intrare valida se repeta
+procesul pentru o masca mai scurta. Daca nici pentru masca 0.0.0.0 nu se gaseste
+vreo intrare functia va returna NULL.
+
+Cautarea binara este realizata cu "pas", determinandu-se pe rand fiecare bit al
+rezultatului. Prima oara se determina un interval [left, right] in care se
+regasesc numai intrari a caror masca este egala cu masca cautata curent. Dupa
+aceea se cauta binar in acest interval o intrare valida pentru adresa ip primita
+ca parametru.
+
+===| main ======================================================================
+
+Executia continua cu o initializare a tabelei arp.
+
+===|===| arp.c =================================================================
+
+Initial aceasta tabela este goala. Tabela se populeaza utilizand functia
+"update_arp_table" implementata in fisierul "arp.c". Aceasta functie primeste o
+intrare de tipul (struct arp_entry) ce contine doua campuri (ip si mac) si
+parcurge toate intrarile din tabela arp curenta pentru a o gasi pe cea
+corespunzatoare si a o "updata" daca este cazul. Aceasta parcurgere initiala
+este necesara deoarece exista cazuri cand o adresa ip se aloca dinamic unui alt
+NIC cu un mac diferit de cel din tabela. Daca intrarea nu este gasita, aceasta
+se adauga la finalul tabelelei. Functia aceasta se apeleaza in general in urma
+primiri unui mesaj de tipul ARP reply.
+
+In acelasi fisier se regaseste functia "send_arp_request", care are
+responsabilitatea de a forma un pachet de tipul ARP request pentru aflarea
+mac-ului corespunzator adresei ip primite ca parametru si a trimite acest pachet
+pe interfata corecta a router-ului.
+
+De asemenea, functia "send_arp_reply" primeste un pachet de tip ARP request
+pe baza caruia construieste un pachet ARP reply. Acest pachet trebuie sa contina
+adresa mac a interfetei router-ului (id-ul interfetei router-ului este unul din
+argumentele functiei) si trebuie sa fie trimis de pe interfata corecta.
+
+Ultima functie din fisierul "arp.c" este "get_arp_entry", care pe baza unei
+adrese ip primite ca parametru extrage intrarea corespunzatoare din tabela arp.
+
+===| main ======================================================================
+
+In continuare, in main se intra intr-o bucla infinita in care se primesc
+pachete ce trebuie procesate sau dirijate. Singurele tipuri de pachete
+specificate in cerinta sunt cele IP si ARP. Pentru pachetele IP se apeleaza
+functia "handle_ip_packet" ce are responsabilitatea gestionarii acestor
+tipuri de pachete.
+
+===|===| handle_ip_packet ======================================================
+
+Primul lucru care se realizeaza in aceasta functie este verificarea
+corectitudinii checksum-ului utilizand functia "checksum".
+Daca pachetul a suferit modificari nedorite acest lucru va fi visibil in
+checksum si router-ul va "discard-ui" pachetul. Daca TTL-ul pachetului a expirat
+acesta va fi "discard-uit" si router-ul va trimite un mesaj ICMP time
+exceeded sursei utilizand functia "send_icmp_packet" (aceasta functie va fi
+discutata ulterior). Daca pachetul este corect atat din punct de vedere al
+checksum-ului cat si al TTL-ului, cel de-al doilea se decrementeaza si primul se
+recalculeaza utilizand functia "checksum_RFC_1624" (discutata mai jos).
+
+Dupa aceea se verifica daca pachetul este destinat unei interfete ale
+router-ului, caz in care se apeleaza functia "packet_for_router_interface".
+
+===|===|===| packet_for_router_interface =======================================
+
+Aceasta functia trateaza ambele cazuri de pachete destinate unei interfete ale
+router-ului. In cazul in care se primeste un pachet IP il proceseaza numai daca
+este de tipul ICMP echo request (alte tipuri de pachete IP nu sunt mentionate in
+cerinta) altfel il "discard-uieste". Daca este un ICMP echo request se raspunde
+cu un ICMP echo reply cu ajutorul functiei "send_icmp_pachet" (aceasta functie
+va fi discutata ulterior).
+
+Daca se primeste un pachet de tipul ARP, atunci functia
+"packet_for_router_interface" se bifurca in 2 cazuri. In primul caz mesajul
+este un ARP request, caz in care se apeleaza functia "send_arp_reply" (discutata
+mai sus). In cel de-al doilea caz, mesajul este un ARP reply si se realizeaza
+apelul functiei "update_arp_table" (discutata de asemenea mai sus). Tot in
+cazul 2 se utilizeaza functia "empty_wait_list" pentru a trimite pachetele
+aflate in "asteptare" din cauza lipsei intrarii corespunzatoare din arp table.
+
+===|===|===|===| empty_wait_list ===============================================
+
+Deoarece am considerat ca in realitate pot fi mai multe pachete in wait_list
+care sa astepte dupa acelasi arp reply si ca aceste pachete nu sunt neaparat
+toate pozitionate la inceputul cozii, am parcurs coada in intregime, trimitand
+orice pachet pentru care se gaseste o intreare in arp table (dupa completarea
+header-ului ethernet cu adresa mac) si pastrand orice pachet pentru care inca
+nu s-a putut gasi o intrare in tabela arp.
+
+===|===| handle_ip_packet ======================================================
+
+Daca pachetul nu este destinat pentru o interfata a router-ului el trebuie
+dirijat catre urmatorul hop. Pentru a obtine informatiile legate de urmatorul
+hop unde trebuie trimis pachetul si pe ce interfata trebuie sa iasa se
+utilizeaza functia "get_best_route" (discutata mai sus). Daca aceasta functie
+returneaza valoarea NULL se va trimite sursei un mesaj ICMP destination
+unreachable utilizand functia "send_icmp_pachet" (discutata mai jos).
+
+Daca s-a determinat ce intrare din tabela de rutare trebuie sa se urmeze,
+se apeleaza functia "get_arp_entry" pentru a se stabili adresa mac a urmatorului
+hop. Daca functia din urma returneaza NULL inseamna ca trebuie trimis un arp
+request pentru obtinearea acestei adrese mac si pachetul trebuie pus in
+"coada de asteptare". Daca functia din urma returneaza o intrare in tabela arp,
+se utilizeaza aceasta intrare pentru a completa header-ul ethernet al pachetului
+cu adresa destinatie si a se trimite pachetul in continuare la urmatorul hop.
+
+===| main ======================================================================
+
+Daca pachetul primit in "router.c" este de tipul ARP atunci se apeleaza functia
+"handle_arp_packet", responsabila cu aceste tipuri de pachete.
+
+===|===| handle_arp_packet =====================================================
+
+Deoarece router-ul nu va trimite mai departe pachetele de tip ARP, daca acest
+pachet nu este destinat niciunei interfete ale router-ului el va fi
+"discard-uit". Daca pachetul se adreseaza unei interfete a router-ului se va
+apela functia "packet_for_router_interface" si se vor derula evenimentele
+prezentate mai sus in cadrul functiei din urma pentru cazul in care se primeste
+un pachet de tipul ARP.
+
+===| send_icmp_packet =========================================================
+
+Aceasta functie este singura implementata in fisierul "icmp.c" si este
+responsabila de transmiterea mesajelor de tip ICMP. Majoritatea mesajelor
+ICMP sunt transmise dupa acelasi model. Se aloca memorie pentru pachet.
+Se utilizeaza functia "get_best_route" pentru a se determina next hop. Se
+completeaza header-ul ip cu informatiile necesare. Se completeaza header-ul icmp
+cu campurile "type" si "code" primite ca parametru, se calculeaza checksum-ul
+pentru header-ul icmp utilizand functia "checksum". Se completeaza header-ul
+ethernet cu informatiile necesare si se trimite pachetul pe interfata corecta.
+(daca nu se gasete nicio intrare in tabela arp pentru urmatorul hop, pachetul
+icmp este pus in "coada de asteptare" si se trimite un arp request pentru
+obtinerea adresei mac destinatie a urmatorului hop).
+
+Daca pachetul ce trebuie trimis este de tipul ICMP echo reply, nu se aloca
+memorie suplimentara pentru construirea unui pachet complet nou. Construirea
+acestui pachet se face pornind de la pachetul ICMP echo request primit ca
+parametru care a cauzat necesitatea trimiterii pachetului ICMP echo reply.
+
+===| utils.c ===================================================================
+
+In acest fisier sunt implementate urmatoarele 3 functii:
+
+===|===| init_packet ===========================================================
+
+Aceasta functie are rolul de a initializa dimensiunea pachetului primit ca
+parametru si payload-ul acestuia cu valoarea 0 pentru evitarea eventualelor
+erori.
+
+===|===| checksum ==============================================================
+
+Aceasta functie a fost preluata din laborator.
+
+===|===| checksum_RFC_1624 =====================================================
+
+Urmeaza a fi implementata :)).
+
+================================================================================
